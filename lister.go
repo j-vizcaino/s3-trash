@@ -1,21 +1,32 @@
 package main
 
 import (
-	awss3 "github.com/aws/aws-sdk-go/service/s3"
+	"context"
+
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	log "github.com/sirupsen/logrus"
 )
 
-func listBucket(bucketName string, s3 *awss3.S3, out ObjectChannel) error {
-	params := awss3.ListObjectVersionsInput{}
-	params.SetBucket(bucketName)
-
+func listBucket(ctx context.Context, bucketName string, s3 *awss3.Client, out ObjectChannel) error {
+	params := awss3.ListObjectVersionsInput{
+		Bucket: &bucketName,
+	}
 
 	log.WithField("bucket", bucketName).Info("Listing object versions in bucket")
 
-	return s3.ListObjectVersionsPages(&params, func(res *awss3.ListObjectVersionsOutput, lastPage bool) bool {
-		for _, marker := range res.DeleteMarkers {
-			out <- &awss3.ObjectIdentifier{Key: marker.Key, VersionId: marker.VersionId}
+	for {
+		res, err := s3.ListObjectVersions(ctx, &params)
+		if err != nil {
+			return err
 		}
-		return true
-	})
+
+		for _, marker := range res.DeleteMarkers {
+			out <- s3types.ObjectIdentifier{Key: marker.Key, VersionId: marker.VersionId}
+		}
+		if res.NextKeyMarker == nil {
+			return nil
+		}
+		params.KeyMarker = res.NextKeyMarker
+	}
 }

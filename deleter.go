@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"sync"
 
-	"github.com/aws/aws-sdk-go/aws"
-	awss3 "github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -12,8 +14,8 @@ const (
 	MaxBulkOpSize = 1000
 )
 
-func doDelete(s3 *awss3.S3, params *awss3.DeleteObjectsInput, status *Status) {
-	_, err := s3.DeleteObjects(params)
+func doDelete(ctx context.Context, s3 *awss3.Client, params *awss3.DeleteObjectsInput, status *Status) {
+	_, err := s3.DeleteObjects(ctx, params)
 	if err != nil {
 		if status.IncrementErrors() == 1 {
 			log.WithError(err).Error("Failed to delete objects")
@@ -24,8 +26,8 @@ func doDelete(s3 *awss3.S3, params *awss3.DeleteObjectsInput, status *Status) {
 	}
 }
 
-func DeleteObjects(bucketName string, s3 *awss3.S3, status *Status, objChan ObjectChannel, wg *sync.WaitGroup) {
-	buffer := [MaxBulkOpSize]*awss3.ObjectIdentifier{}
+func DeleteObjects(ctx context.Context, bucketName string, s3 *awss3.Client, status *Status, objChan ObjectChannel, wg *sync.WaitGroup) {
+	buffer := [MaxBulkOpSize]s3types.ObjectIdentifier{}
 	current := 0
 	for obj := range objChan {
 
@@ -38,21 +40,21 @@ func DeleteObjects(bucketName string, s3 *awss3.S3, status *Status, objChan Obje
 		current = 0
 		p := awss3.DeleteObjectsInput{
 			Bucket: aws.String(bucketName),
-			Delete: &awss3.Delete{
+			Delete: &s3types.Delete{
 				Objects: buffer[:],
 			},
 		}
-		doDelete(s3, &p, status)
+		doDelete(ctx, s3, &p, status)
 	}
 
 	if current != 0 {
 		p := awss3.DeleteObjectsInput{
 			Bucket: aws.String(bucketName),
-			Delete: &awss3.Delete{
+			Delete: &s3types.Delete{
 				Objects: buffer[:current],
 			},
 		}
-		doDelete(s3, &p, status)
+		doDelete(ctx, s3, &p, status)
 	}
 	wg.Done()
 }
